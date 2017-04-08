@@ -12,16 +12,56 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/mman.h>
+#include <stdlib.h>
 
 using namespace std;
 
+typedef uint8_t u8;
+typedef uint32_t u32;
+typedef uint64_t u64;
+#define PAGE_SIZE 4096
+
+//xen/include/public/vcpu.h:
+#define VCPUOP_get_runstate_info     4
+
+u64 do_vcpu_op(u64 cmd, u64 vcpu, void* extra){
+    if (vcpu < 8) {
+      return 0;
+    } else {
+      return -1;
+    }
+}
+u64 hyper_test(u64 a1, void* a2, void* a3, void* a4, void* a5) {
+  printf("in hypertest %p %p %p %p %p\n", a1, a2, a3, a4, a5);
+  switch (a1) {
+  case VCPUOP_get_runstate_info:
+    return do_vcpu_op(a1, (u64)a2, a3);
+  }
+  exit(0);
+}
 void init_hypercalls(void *hypercall_page) {
-  // model this on hypercall_page_initialise_ring1_kernel from xen
+  char *p;
+  int i;
+  // modeled this on hypercall_page_initialise_ring1_kernel from xen
+  for ( i = 0; i < (PAGE_SIZE / 32); i++ ) {
+    //if ( i == __HYPERVISOR_iret ) continue;
+    p = (char *)(hypercall_page + (i * 32));
+    *(u8  *)(p+ 0) = 0xb8;    /* mov  $<i>,%eax */
+    *(u32 *)(p+ 1) = i;
+    *(u8  *)(p+ 5) = 0x48;    /* movabs $<x>, %rax */
+    *(u8  *)(p+ 6) = 0xb8;    /* %rax */
+    *(u64 *)(p+ 7) = (u64)hyper_test;
+    *(u8  *)(p+15) = 0xff;    /* call *%rax */
+    *(u8  *)(p+16) = 0xd0;    /* %rax */
+    *(u8  *)(p+17) = 0xc3;    /* ret */
+  }
+  FILE *fh = fopen("hypercall_page.bin","w");
+  fwrite(hypercall_page, 1, 4096, fh);
+  fclose(fh);
 }
 
 int main(int argc, char **argv) {
   assert(argc == 2);
-  //void *unikernel_start;
   size_t n, shstrndx;
 
   if (elf_version(EV_CURRENT) == EV_NONE) {
@@ -86,11 +126,11 @@ int main(int argc, char **argv) {
   }
   //cerr << "section header string index " << shstrndx << "\n";
   
-  void *hypercall_page = mmap(0xa49000, 4096, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0);
+  void *hypercall_page = mmap((void*)0xa49000, 4096, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0);
   init_hypercalls(hypercall_page);
   printf("entry point %p\n", ehdr.e_entry);
   void* raw_entry = reinterpret_cast<void*>(ehdr.e_entry);
-  asm("call %P0" : : "m"(raw_entry));
+  asm("call %P0" : : "rm"(raw_entry));
 
   /*Elf_Scn *scn = NULL;
   GElf_Shdr shdr;
