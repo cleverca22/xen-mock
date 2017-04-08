@@ -1,1 +1,7 @@
-g++ -g main.cpp -o xen-mock -ldl -lelf -Wall -Wl,-Ttext-segment=0x1000000
+with import <nixpkgs>{};
+
+stdenv.mkDerivation {
+  name = "xen-mock";
+  buildInputs = [ xen libelf ];
+  src = ./.;
+}

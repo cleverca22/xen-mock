@@ -31,7 +31,8 @@ u64 do_vcpu_op(u64 cmd, u64 vcpu, void* extra){
       return -1;
     }
 }
-u64 hyper_test(u64 a1, void* a2, void* a3, void* a4, void* a5) {
+u64 hyper_test(u64 a1, void* a2, void* a3, void* a4, void* a5, u64 hypercall_op) {
+  printf("op %p\n", (void*)hypercall_op);
   printf("in hypertest %p %p %p %p %p\n", a1, a2, a3, a4, a5);
   switch (a1) {
   case VCPUOP_get_runstate_info:
@@ -42,18 +43,24 @@ u64 hyper_test(u64 a1, void* a2, void* a3, void* a4, void* a5) {
 void init_hypercalls(void *hypercall_page) {
   char *p;
   int i;
+  memset(hypercall_page, 0x90, 4096);
   // modeled this on hypercall_page_initialise_ring1_kernel from xen
   for ( i = 0; i < (PAGE_SIZE / 32); i++ ) {
     //if ( i == __HYPERVISOR_iret ) continue;
     p = (char *)(hypercall_page + (i * 32));
-    *(u8  *)(p+ 0) = 0xb8;    /* mov  $<i>,%eax */
-    *(u32 *)(p+ 1) = i;
-    *(u8  *)(p+ 5) = 0x48;    /* movabs $<x>, %rax */
-    *(u8  *)(p+ 6) = 0xb8;    /* %rax */
-    *(u64 *)(p+ 7) = (u64)hyper_test;
-    *(u8  *)(p+15) = 0xff;    /* call *%rax */
-    *(u8  *)(p+16) = 0xd0;    /* %rax */
-    *(u8  *)(p+17) = 0xc3;    /* ret */
+    if (false) {
+    *(u8  *)(p+ 0) = 0x4c;    /* mov  $<i>,%r9 */
+    *(u8  *)(p+ 1) = 0x8b;
+    *(u8  *)(p+ 2) = 0x0c;
+    *(u8  *)(p+ 3) = 0x25;
+    *(u32 *)(p+ 4) = i;
+    }
+    *(u8  *)(p+ 8) = 0x48;    /* movabs $<x>, %rax */
+    *(u8  *)(p+ 9) = 0xb8;    /* %rax */
+    *(u64 *)(p+10) = (u64)hyper_test;
+    *(u8  *)(p+18) = 0xff;    /* call *%rax */
+    *(u8  *)(p+19) = 0xd0;    /* %rax */
+    *(u8  *)(p+20) = 0xc3;    /* ret */
   }
   FILE *fh = fopen("hypercall_page.bin","w");
   fwrite(hypercall_page, 1, 4096, fh);
